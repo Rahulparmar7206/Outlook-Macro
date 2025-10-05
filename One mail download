@@ -1,0 +1,103 @@
+Sub DownloadAttachmentsFromSelectedEmails()
+    Dim objOutlook As Object
+    Dim objSelection As Object
+    Dim objMail As Object
+    Dim objAttachment As Object
+    Dim strFolderName As String
+    Dim strDesktopPath As String
+    Dim strSavePath As String
+    Dim FSO As Object
+    Dim intCount As Integer
+    Dim strFileName As String
+    Dim intCounter As Integer
+    
+    ' Get Desktop path
+    strDesktopPath = CreateObject("WScript.Shell").SpecialFolders("Desktop")
+    
+    ' Prompt user for folder name
+    strFolderName = InputBox("Enter the folder name to save attachments:", "Folder Name")
+    
+    ' Check if user cancelled or entered empty name
+    If strFolderName = "" Then
+        MsgBox "Operation cancelled. No folder name provided.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Create full path for new folder
+    strSavePath = strDesktopPath & "" & strFolderName
+    
+    ' Create FileSystemObject
+    Set FSO = CreateObject("Scripting.FileSystemObject")
+    
+    ' Create folder if it doesn't exist
+    If Not FSO.FolderExists(strSavePath) Then
+        FSO.CreateFolder strSavePath
+    Else
+        MsgBox "Folder already exists. Files will be saved in existing folder.", vbInformation
+    End If
+    
+    ' Get Outlook application
+    Set objOutlook = Application
+    
+    ' Get selected emails
+    Set objSelection = objOutlook.ActiveExplorer.Selection
+    
+    ' Check if any emails are selected
+    If objSelection.Count = 0 Then
+        MsgBox "No emails selected. Please select one or more emails.", vbExclamation
+        Exit Sub
+    End If
+    
+    intCount = 0
+    
+    ' Loop through each selected email
+    For Each objMail In objSelection
+        ' Check if it's a mail item
+        If TypeName(objMail) = "MailItem" Then
+            ' Check if email has attachments
+            If objMail.Attachments.Count > 0 Then
+                ' Loop through each attachment
+                For Each objAttachment In objMail.Attachments
+                    strFileName = objAttachment.FileName
+                    
+                    ' Check if file already exists and rename if necessary
+                    intCounter = 1
+                    Do While FSO.FileExists(strSavePath & "" & strFileName)
+                        Dim strExtension As String
+                        Dim strBaseName As String
+                        Dim intDotPos As Integer
+                        
+                        intDotPos = InStrRev(objAttachment.FileName, ".")
+                        If intDotPos > 0 Then
+                            strBaseName = Left(objAttachment.FileName, intDotPos - 1)
+                            strExtension = Mid(objAttachment.FileName, intDotPos)
+                        Else
+                            strBaseName = objAttachment.FileName
+                            strExtension = ""
+                        End If
+                        
+                        strFileName = strBaseName & "_" & intCounter & strExtension
+                        intCounter = intCounter + 1
+                    Loop
+                    
+                    ' Save attachment
+                    objAttachment.SaveAsFile strSavePath & "" & strFileName
+                    intCount = intCount + 1
+                Next objAttachment
+            End If
+        End If
+    Next objMail
+    
+    ' Show completion message
+    MsgBox "Download complete!" & vbCrLf & vbCrLf & _
+           "Total attachments saved: " & intCount & vbCrLf & _
+           "Location: " & strSavePath, vbInformation, "Success"
+    
+    ' Clean up
+    Set objAttachment = Nothing
+    Set objMail = Nothing
+    Set objSelection = Nothing
+    Set objOutlook = Nothing
+    Set FSO = Nothing
+    
+End Sub
