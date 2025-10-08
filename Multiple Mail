@@ -1,145 +1,76 @@
-Sub DownloadAttachmentsWithSenderSubfolders()
-    Dim objOutlook As Object
-    Dim objSelection As Object
-    Dim objMail As Object
-    Dim objAttachment As Object
-    Dim strFolderName As String
-    Dim strDesktopPath As String
-    Dim strMainPath As String
-    Dim strSenderPath As String
-    Dim FSO As Object
-    Dim intCount As Integer
-    Dim strFileName As String
-    Dim intCounter As Integer
-    Dim strSenderName As String
-    
-    ' Get Desktop path
-    strDesktopPath = CreateObject("WScript.Shell").SpecialFolders("Desktop")
-    
-    ' Prompt user for main folder name
-    strFolderName = InputBox("Enter the main folder name to save attachments:", "Folder Name")
-    
-    ' Check if user cancelled or entered empty name
-    If strFolderName = "" Then
-        MsgBox "Operation cancelled. No folder name provided.", vbExclamation
-        Exit Sub
-    End If
-    
-    ' Create full path for main folder
-    strMainPath = strDesktopPath & "" & strFolderName
-    
-    ' Create FileSystemObject
-    Set FSO = CreateObject("Scripting.FileSystemObject")
-    
-    ' Create main folder if it doesn't exist
-    If Not FSO.FolderExists(strMainPath) Then
-        FSO.CreateFolder strMainPath
-    End If
-    
-    ' Get Outlook application
-    Set objOutlook = Application
-    
-    ' Get selected emails
-    Set objSelection = objOutlook.ActiveExplorer.Selection
-    
-    ' Check if any emails are selected
-    If objSelection.Count = 0 Then
-        MsgBox "No emails selected. Please select one or more emails.", vbExclamation
-        Exit Sub
-    End If
-    
-    intCount = 0
-    
-    ' Loop through each selected email
-    For Each objMail In objSelection
-        ' Check if it's a mail item
-        If TypeName(objMail) = "MailItem" Then
-            ' Get sender name and clean it for folder name
-            strSenderName = objMail.SenderName
-            
-            ' Remove invalid characters from sender name
-            strSenderName = CleanFolderName(strSenderName)
-            
-            ' Create sender subfolder path
-            strSenderPath = strMainPath & "" & strSenderName
-            
-            ' Create sender subfolder if it doesn't exist
-            If Not FSO.FolderExists(strSenderPath) Then
-                FSO.CreateFolder strSenderPath
-            End If
-            
-            ' Check if email has attachments
-            If objMail.Attachments.Count > 0 Then
-                ' Loop through each attachment
-                For Each objAttachment In objMail.Attachments
-                    strFileName = objAttachment.FileName
-                    
-                    ' Check if file already exists and rename if necessary
-                    intCounter = 1
-                    Do While FSO.FileExists(strSenderPath & "" & strFileName)
-                        Dim strExtension As String
-                        Dim strBaseName As String
-                        Dim intDotPos As Integer
-                        
-                        intDotPos = InStrRev(objAttachment.FileName, ".")
-                        If intDotPos > 0 Then
-                            strBaseName = Left(objAttachment.FileName, intDotPos - 1)
-                            strExtension = Mid(objAttachment.FileName, intDotPos)
-                        Else
-                            strBaseName = objAttachment.FileName
-                            strExtension = ""
-                        End If
-                        
-                        strFileName = strBaseName & "_" & intCounter & strExtension
-                        intCounter = intCounter + 1
-                    Loop
-                    
-                    ' Save attachment in sender's subfolder
-                    objAttachment.SaveAsFile strSenderPath & "" & strFileName
-                    intCount = intCount + 1
-                Next objAttachment
-            End If
-        End If
-    Next objMail
-    
-    ' Show completion message
-    MsgBox "Download complete!" & vbCrLf & vbCrLf & _
-           "Total attachments saved: " & intCount & vbCrLf & _
-           "Location: " & strMainPath, vbInformation, "Success"
-    
-    ' Clean up
-    Set objAttachment = Nothing
-    Set objMail = Nothing
-    Set objSelection = Nothing
-    Set objOutlook = Nothing
-    Set FSO = Nothing
-    
+Private Sub UserForm_Initialize()
+    ' Set Desktop path as default
+    txtPath.Text = CreateObject("WScript.Shell").SpecialFolders("Desktop")
+    txtFolderName.Text = ""
+    txtFolderName.SetFocus
 End Sub
 
-' Function to clean folder names by removing invalid characters
-Function CleanFolderName(strName As String) As String
-    Dim strClean As String
-    Dim i As Integer
-    Dim strChar As String
-    Dim arrInvalidChars As Variant
+Private Sub btnBrowse_Click()
+    Dim objExcel As Object
+    Dim objDialog As Object
+    Dim strPath As String
     
-    ' Define invalid characters for folder names
-    arrInvalidChars = Array("", "/", ":", "*", "?", """", "<", ">", "|")
+    On Error Resume Next
     
-    strClean = strName
+    ' Create Excel Application for FileDialog
+    Set objExcel = CreateObject("Excel.Application")
+    objExcel.Visible = False
     
-    ' Remove invalid characters
-    For i = LBound(arrInvalidChars) To UBound(arrInvalidChars)
-        strClean = Replace(strClean, arrInvalidChars(i), "")
-    Next i
+    ' Use FileDialog with msoFileDialogFolderPicker
+    Set objDialog = objExcel.FileDialog(4)
     
-    ' Trim leading and trailing spaces
-    strClean = Trim(strClean)
+    With objDialog
+        .Title = "Select folder to save attachments"
+        .AllowMultiSelect = False
+        .ButtonName = "Select"
+        .InitialFileName = txtPath.Text & "\"
+        
+        If .Show = -1 Then
+            strPath = .SelectedItems(1)
+            txtPath.Text = strPath
+        End If
+    End With
     
-    ' If name is empty after cleaning, use default
-    If strClean = "" Then
-        strClean = "Unknown_Sender"
+    ' Clean up
+    objExcel.Quit
+    Set objDialog = Nothing
+    Set objExcel = Nothing
+    
+    On Error GoTo 0
+End Sub
+
+Private Sub btnOK_Click()
+    ' Validate path
+    If txtPath.Text = "" Then
+        MsgBox "Please enter or select a save location.", vbExclamation
+        Exit Sub
     End If
     
-    CleanFolderName = strClean
-End Function
+    ' Validate folder name
+    If txtFolderName.Text = "" Then
+        MsgBox "Please enter a folder name.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Check if path exists
+    Dim FSO As Object
+    Set FSO = CreateObject("Scripting.FileSystemObject")
+    
+    If Not FSO.FolderExists(txtPath.Text) Then
+        MsgBox "The specified path does not exist. Please enter a valid path or click Browse.", vbExclamation
+        Set FSO = Nothing
+        Exit Sub
+    End If
+    
+    Set FSO = Nothing
+    
+    ' Hide form and proceed
+    Me.Hide
+End Sub
+
+Private Sub btnCancel_Click()
+    ' Clear values and close
+    txtPath.Text = ""
+    txtFolderName.Text = ""
+    Me.Hide
+End Sub
