@@ -1,97 +1,162 @@
-Sub DownloadAttachmentsFromSelectedEmails()
+Sub DownloadAttachmentsSmartMode()
     Dim objOutlook As Object
     Dim objSelection As Object
     Dim objMail As Object
     Dim objAttachment As Object
+    Dim strBasePath As String
     Dim strFolderName As String
-    Dim strDesktopPath As String
     Dim strSavePath As String
+    Dim strSenderPath As String
     Dim FSO As Object
     Dim intCount As Integer
     Dim strFileName As String
     Dim intCounter As Integer
-    
-    ' Get Desktop path
-    strDesktopPath = CreateObject("WScript.Shell").SpecialFolders("Desktop")
-    
-    ' Prompt user for folder name
-    strFolderName = InputBox("Enter the folder name to save attachments:", "Folder Name")
-    
-    ' Check if user cancelled or entered empty name
-    If strFolderName = "" Then
-        MsgBox "Operation cancelled. No folder name provided.", vbExclamation
-        Exit Sub
-    End If
-    
-    ' Create full path for new folder
-    strSavePath = strDesktopPath & "" & strFolderName
-    
-    ' Create FileSystemObject
-    Set FSO = CreateObject("Scripting.FileSystemObject")
-    
-    ' Create folder if it doesn't exist
-    If Not FSO.FolderExists(strSavePath) Then
-        FSO.CreateFolder strSavePath
-    Else
-        MsgBox "Folder already exists. Files will be saved in existing folder.", vbInformation
-    End If
+    Dim strSenderName As String
+    Dim intEmailCount As Integer
     
     ' Get Outlook application
     Set objOutlook = Application
     
     ' Get selected emails
+    On Error Resume Next
     Set objSelection = objOutlook.ActiveExplorer.Selection
+    On Error GoTo 0
     
     ' Check if any emails are selected
+    If objSelection Is Nothing Then
+        MsgBox "No emails selected. Please select one or more emails.", vbExclamation
+        Exit Sub
+    End If
+    
     If objSelection.Count = 0 Then
         MsgBox "No emails selected. Please select one or more emails.", vbExclamation
         Exit Sub
     End If
     
+    ' Show custom form
+    frmSaveAttachments.Show
+    
+    ' Get values from form
+    strBasePath = frmSaveAttachments.txtPath.Text
+    strFolderName = frmSaveAttachments.txtFolderName.Text
+    
+    ' Unload form
+    Unload frmSaveAttachments
+    
+    ' Check if user cancelled
+    If strBasePath = "" Or strFolderName = "" Then
+        MsgBox "Operation cancelled.", vbExclamation
+        Exit Sub
+    End If
+    
+    ' Create FileSystemObject
+    Set FSO = CreateObject("Scripting.FileSystemObject")
+    
+    ' Create full path for main folder
+    strSavePath = strBasePath & "\" & strFolderName
+    
+    ' Create main folder if it doesn't exist
+    If Not FSO.FolderExists(strSavePath) Then
+        FSO.CreateFolder strSavePath
+    End If
+    
+    intEmailCount = objSelection.Count
     intCount = 0
     
-    ' Loop through each selected email
-    For Each objMail In objSelection
-        ' Check if it's a mail item
-        If TypeName(objMail) = "MailItem" Then
-            ' Check if email has attachments
-            If objMail.Attachments.Count > 0 Then
-                ' Loop through each attachment
-                For Each objAttachment In objMail.Attachments
-                    strFileName = objAttachment.FileName
-                    
-                    ' Check if file already exists and rename if necessary
-                    intCounter = 1
-                    Do While FSO.FileExists(strSavePath & "" & strFileName)
-                        Dim strExtension As String
-                        Dim strBaseName As String
-                        Dim intDotPos As Integer
+    ' Smart logic: Single email vs Multiple emails
+    If intEmailCount = 1 Then
+        ' SINGLE EMAIL: Download directly to main folder (no subfolders)
+        For Each objMail In objSelection
+            If TypeName(objMail) = "MailItem" Then
+                If objMail.Attachments.Count > 0 Then
+                    For Each objAttachment In objMail.Attachments
+                        strFileName = objAttachment.FileName
                         
-                        intDotPos = InStrRev(objAttachment.FileName, ".")
-                        If intDotPos > 0 Then
-                            strBaseName = Left(objAttachment.FileName, intDotPos - 1)
-                            strExtension = Mid(objAttachment.FileName, intDotPos)
-                        Else
-                            strBaseName = objAttachment.FileName
-                            strExtension = ""
-                        End If
+                        ' Handle duplicate file names
+                        intCounter = 1
+                        Do While FSO.FileExists(strSavePath & "\" & strFileName)
+                            Dim strExtension As String
+                            Dim strBaseName As String
+                            Dim intDotPos As Integer
+                            
+                            intDotPos = InStrRev(objAttachment.FileName, ".")
+                            If intDotPos > 0 Then
+                                strBaseName = Left(objAttachment.FileName, intDotPos - 1)
+                                strExtension = Mid(objAttachment.FileName, intDotPos)
+                            Else
+                                strBaseName = objAttachment.FileName
+                                strExtension = ""
+                            End If
+                            
+                            strFileName = strBaseName & "_" & intCounter & strExtension
+                            intCounter = intCounter + 1
+                        Loop
                         
-                        strFileName = strBaseName & "_" & intCounter & strExtension
-                        intCounter = intCounter + 1
-                    Loop
-                    
-                    ' Save attachment
-                    objAttachment.SaveAsFile strSavePath & "" & strFileName
-                    intCount = intCount + 1
-                Next objAttachment
+                        ' Save attachment directly to main folder
+                        objAttachment.SaveAsFile strSavePath & "\" & strFileName
+                        intCount = intCount + 1
+                    Next objAttachment
+                End If
             End If
-        End If
-    Next objMail
-    
-    ' Show completion message
-    MsgBox "Download complete!" & vbCrLf & vbCrLf & _
-           "Total attachments saved: " & intCount & vbCrLf & _
-           "Location: " & strSavePath, vbInformation, "Success"
+        Next objMail
+        
+        ' Show completion message for single email
+        MsgBox "Download complete!" & vbCrLf & vbCrLf & _
+               "Total attachments saved: " & intCount & vbCrLf & _
+               "Location: " & strSavePath, vbInformation, "Success"
+        
+    Else
+        ' MULTIPLE EMAILS: Create subfolders per sender
+        For Each objMail In objSelection
+            If TypeName(objMail) = "MailItem" Then
+                ' Get sender name and clean it for folder name
+                strSenderName = objMail.SenderName
+                strSenderName = CleanFolderName(strSenderName)
+                
+                ' Create sender subfolder path
+                strSenderPath = strSavePath & "\" & strSenderName
+                
+                ' Create sender subfolder if it doesn't exist
+                If Not FSO.FolderExists(strSenderPath) Then
+                    FSO.CreateFolder strSenderPath
+                End If
+                
+                ' Check if email has attachments
+                If objMail.Attachments.Count > 0 Then
+                    For Each objAttachment In objMail.Attachments
+                        strFileName = objAttachment.FileName
+                        
+                        ' Handle duplicate file names
+                        intCounter = 1
+                        Do While FSO.FileExists(strSenderPath & "\" & strFileName)
+                            intDotPos = InStrRev(objAttachment.FileName, ".")
+                            If intDotPos > 0 Then
+                                strBaseName = Left(objAttachment.FileName, intDotPos - 1)
+                                strExtension = Mid(objAttachment.FileName, intDotPos)
+                            Else
+                                strBaseName = objAttachment.FileName
+                                strExtension = ""
+                            End If
+                            
+                            strFileName = strBaseName & "_" & intCounter & strExtension
+                            intCounter = intCounter + 1
+                        Loop
+                        
+                        ' Save attachment in sender's subfolder
+                        objAttachment.SaveAsFile strSenderPath & "\" & strFileName
+                        intCount = intCount + 1
+                    Next objAttachment
+                End If
+            End If
+        Next objMail
+        
+        ' Show completion message for multiple emails
+        MsgBox "Download complete!" & vbCrLf & vbCrLf & _
+               "Total emails processed: " & intEmailCount & vbCrLf & _
+               "Total attachments saved: " & intCount & vbCrLf & _
+               "Location: " & strSavePath & vbCrLf & vbCrLf & _
+               "Attachments organized by sender in subfolders.", vbInformation, "Success"
+    End If
     
     ' Clean up
     Set objAttachment = Nothing
@@ -101,3 +166,33 @@ Sub DownloadAttachmentsFromSelectedEmails()
     Set FSO = Nothing
     
 End Sub
+
+' Function to clean folder names by removing invalid characters
+Function CleanFolderName(strName As String) As String
+    Dim strClean As String
+    Dim i As Integer
+    Dim arrInvalidChars As Variant
+    
+    ' Define invalid characters for folder names
+    arrInvalidChars = Array("\", "/", ":", "*", "?", """", "<", ">", "|")
+    
+    strClean = strName
+    
+    ' Remove invalid characters
+    For i = LBound(arrInvalidChars) To UBound(arrInvalidChars)
+        strClean = Replace(strClean, arrInvalidChars(i), "")
+    Next i
+    
+    ' Trim leading and trailing spaces
+    strClean = Trim(strClean)
+    
+    ' If name is empty after cleaning, use default
+    If strClean = "" Then
+        strClean = "Unknown_Sender"
+    End If
+    
+    CleanFolderName = strClean
+End Function
+
+
+
